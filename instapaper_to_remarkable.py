@@ -217,7 +217,7 @@ def upload_to_remarkable(pdf_path, folder):
     subprocess.run(["rmapi", "mkdir", folder], capture_output=True)
 
     result = subprocess.run(
-        ["rmapi", "put", "--force", str(pdf_path), folder],
+        ["rmapi", "put", "--content-only", str(pdf_path), folder],
         capture_output=True,
         text=True,
     )
