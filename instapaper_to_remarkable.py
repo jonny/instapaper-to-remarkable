@@ -81,7 +81,7 @@ HTML_TEMPLATE = """\
 
 
 def load_config():
-    load_dotenv()
+    load_dotenv(Path(__file__).parent / ".env")
     required = [
         "INSTAPAPER_CONSUMER_KEY",
         "INSTAPAPER_CONSUMER_SECRET",
