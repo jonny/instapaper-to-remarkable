@@ -74,7 +74,6 @@ HTML_TEMPLATE = """\
 <style>{css}</style>
 </head>
 <body>
-<h1>{title}</h1>
 {content}
 </body>
 </html>
@@ -206,7 +205,6 @@ def article_to_pdf(title, url, output_path):
 
     full_html = HTML_TEMPLATE.format(
         css=EREADER_CSS,
-        title=title.replace("&", "&amp;").replace("<", "&lt;"),
         content=content,
     )
     HTML(string=full_html, base_url=url).write_pdf(str(output_path))
