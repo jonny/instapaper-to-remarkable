@@ -200,12 +200,16 @@ def article_to_pdf(title, url, output_path):
         log.warning("Could not extract content for: %s", url)
         return False
 
+    # Trafilatura outputs <graphic> tags instead of <img>; convert for WeasyPrint.
+    content = re.sub(r"<graphic\b", "<img", content)
+    content = re.sub(r"</graphic>", "", content)
+
     full_html = HTML_TEMPLATE.format(
         css=EREADER_CSS,
         title=title.replace("&", "&amp;").replace("<", "&lt;"),
         content=content,
     )
-    HTML(string=full_html).write_pdf(str(output_path))
+    HTML(string=full_html, base_url=url).write_pdf(str(output_path))
     return True
 
 
@@ -215,7 +219,7 @@ def upload_to_remarkable(pdf_path, folder):
     subprocess.run(["rmapi", "mkdir", folder], capture_output=True)
 
     result = subprocess.run(
-        ["rmapi", "put", str(pdf_path), folder],
+        ["rmapi", "put", "--force", str(pdf_path), folder],
         capture_output=True,
         text=True,
     )
