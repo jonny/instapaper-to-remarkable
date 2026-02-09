@@ -1,0 +1,4 @@
+requests-oauthlib
+trafilatura
+weasyprint
+python-dotenv
