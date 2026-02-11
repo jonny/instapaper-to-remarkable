@@ -7,9 +7,11 @@ import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -78,6 +80,33 @@ HTML_TEMPLATE = """\
 </body>
 </html>
 """
+
+
+def wait_for_network(host="www.instapaper.com", timeout=300, interval=30):
+    """Wait up to `timeout` seconds for DNS resolution of `host`.
+
+    Checks every `interval` seconds. Returns True if network is available,
+    False if the timeout was reached without connectivity.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            socket.getaddrinfo(host, 443)
+            log.info("Network is available.")
+            return True
+        except socket.gaierror:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                log.warning(
+                    "Network not available after %ds — proceeding anyway.", timeout
+                )
+                return False
+            log.info(
+                "Network not available, retrying in %ds (%.0fs remaining)...",
+                interval,
+                remaining,
+            )
+            time.sleep(min(interval, remaining))
 
 
 def load_config():
@@ -278,4 +307,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    wait_for_network()
+    try:
+        main()
+    except (Exception, SystemExit) as exc:
+        log.error("Run failed (%s). Will retry once in 1 hour.", exc)
+        time.sleep(3600)
+        log.info("Retrying after 1 hour delay...")
+        wait_for_network()
+        main()
