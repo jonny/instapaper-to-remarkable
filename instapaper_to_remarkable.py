@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Fetch unread Instapaper bookmarks, convert to PDF, upload to Remarkable."""
 
-import ctypes.util
 import json
 import logging
 import os
@@ -15,25 +14,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Ensure Homebrew libraries are discoverable on macOS (needed for WeasyPrint).
-_brew_lib = "/opt/homebrew/lib"
-if sys.platform == "darwin" and os.path.isdir(_brew_lib):
-    os.environ.setdefault("DYLD_FALLBACK_LIBRARY_PATH", _brew_lib)
-    # Monkey-patch find_library so cffi/WeasyPrint can locate Homebrew .dylib files.
-    _orig_find_library = ctypes.util.find_library
+# If a custom CA bundle is present (e.g. Zscaler SSL interception), use it
+# instead of certifi's default so trafilatura/urllib3 trust the proxy CA.
+_zscaler_certs = Path.home() / ".zscaler" / "certs.pem"
+if _zscaler_certs.is_file():
+    import certifi
 
-    def _find_library_brew(name):
-        result = _orig_find_library(name)
-        if result:
-            return result
-        # Try Homebrew lib directory directly.
-        for suffix in (".dylib",):
-            candidate = os.path.join(_brew_lib, f"lib{name}{suffix}")
-            if os.path.exists(candidate):
-                return candidate
-        return None
-
-    ctypes.util.find_library = _find_library_brew
+    certifi.where = lambda: str(_zscaler_certs)
 
 import trafilatura
 from dotenv import load_dotenv
