@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fetch unread Instapaper bookmarks, convert to PDF, upload to Remarkable."""
 
+import html as html_lib
 import json
 import logging
 import os
@@ -259,6 +260,10 @@ def article_to_pdf(title, url, output_path):
     # Trafilatura outputs <graphic> tags instead of <img>; convert for WeasyPrint.
     content = re.sub(r"<graphic\b", "<img", content)
     content = re.sub(r"</graphic>", "", content)
+
+    # Prepend title if trafilatura didn't include one.
+    if not re.search(r"<h1[\s>]", content, re.IGNORECASE):
+        content = f"<h1>{html_lib.escape(title)}</h1>\n{content}"
 
     full_html = HTML_TEMPLATE.format(
         css=EREADER_CSS,
