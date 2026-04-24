@@ -2,3 +2,4 @@ requests-oauthlib
 trafilatura
 weasyprint
 python-dotenv
+rm_api

@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import socket
-import subprocess
 import sys
 import tempfile
 import time
@@ -125,14 +124,6 @@ def load_config():
     }
 
 
-def check_rmapi():
-    if not shutil.which("rmapi"):
-        log.error(
-            "rmapi not found. Install via: brew install ddvk/tap/rmapi "
-            "or download from https://github.com/ddvk/rmapi/releases"
-        )
-        sys.exit(1)
-
 
 def instapaper_auth(config):
     """Authenticate via Instapaper's xAuth flow and return an OAuth1Session."""
@@ -193,7 +184,7 @@ def save_processed(path, processed):
 
 
 def sanitize_filename(title):
-    name = re.sub(r'[<>:"/\\|?*]', "", title)
+    name = re.sub(r'[<>:"/\\|?*.]', "", title)
     name = re.sub(r"\s+", " ", name).strip()
     return name[:120] if name else "untitled"
 
@@ -227,25 +218,61 @@ def article_to_pdf(title, url, output_path):
     return True
 
 
-def upload_to_remarkable(pdf_path, folder):
-    """Upload a PDF to Remarkable via rmapi. Returns True on success."""
-    # Ensure the target folder exists
-    subprocess.run(["rmapi", "mkdir", folder], capture_output=True)
+def _get_rm_device_token():
+    """Read the device token from rmapi's config file."""
+    conf = Path.home() / "Library" / "Application Support" / "rmapi" / "rmapi.conf"
+    if conf.exists():
+        for line in conf.read_text().splitlines():
+            if line.startswith("devicetoken:"):
+                return line.split(":", 1)[1].strip()
+    return None
 
-    result = subprocess.run(
-        ["rmapi", "put", "--content-only", str(pdf_path), folder],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        log.error("rmapi upload failed: %s %s", result.stdout, result.stderr)
+
+def upload_to_remarkable(pdf_path, title, folder):
+    """Upload a PDF to Remarkable via rm_api. Returns True on success."""
+    from rm_api import API
+    from rm_api.models import Document, DocumentCollection
+
+    device_token = _get_rm_device_token()
+    if not device_token:
+        log.error("No rmapi device token found in ~/Library/Application Support/rmapi/rmapi.conf")
         return False
-    return True
+
+    token_file = Path.home() / ".rm_api_device_token"
+    token_file.write_text(device_token)
+
+    sync_dir = str(Path.home() / ".rm_api_sync")
+    logging.getLogger("rm_api").setLevel(logging.ERROR)
+    try:
+        api = API(token_file_path=str(token_file), sync_file_path=sync_dir, log_file=os.devnull)
+        if api.offline_mode:
+            log.error("rm_api: offline — cannot upload")
+            return False
+
+        api.get_documents()
+
+        folder_name = folder.strip("/")
+        target = next(
+            (c for c in api.document_collections.values()
+             if c.metadata.visible_name == folder_name and not c.metadata.parent),
+            None,
+        )
+        if target is None:
+            target = DocumentCollection.create(api, folder_name, parent=None)
+            api.upload(target)
+
+        pdf_bytes = Path(pdf_path).read_bytes()
+        doc = Document.new_pdf(api=api, name=title, pdf_data=pdf_bytes, parent=target.uuid)
+        api.upload(doc)
+        return True
+
+    except Exception:
+        log.exception("rm_api upload error")
+        return False
 
 
 def main():
     config = load_config()
-    check_rmapi()
 
     log.info("Authenticating with Instapaper...")
     session = instapaper_auth(config)
@@ -279,7 +306,9 @@ def main():
                 if not article_to_pdf(title, url, pdf_path):
                     continue
 
-                if upload_to_remarkable(pdf_path, config["remarkable_folder"]):
+                size_mb = Path(pdf_path).stat().st_size / 1024**2
+                log.info("PDF size: %.1f MB — %s", size_mb, title)
+                if upload_to_remarkable(pdf_path, title, config["remarkable_folder"]):
                     processed[bid] = datetime.now(timezone.utc).isoformat()
                     save_processed(config["processed_log"], processed)
                     log.info("Uploaded: %s", title)
