@@ -31,7 +31,7 @@ Fetches unread Instapaper bookmarks via OAuth/xAuth API, extracts article conten
 - trafilatura HTML output already includes `<h1>` title — don't add another in template
 - Passes `base_url` to WeasyPrint for relative image resolution
 - `.env` loaded via absolute path (`Path(__file__).parent / ".env"`) for cron/launchd compatibility
-- Paywalled sites (NYT, WSJ, Forbes, Reuters) fail gracefully — logged and skipped
+- Paywalled sites use cookie files from `.cookies/{domain}.txt` (Netscape format, gitignored). Export via "Get cookies.txt LOCALLY" browser extension while logged in. File naming: `nytimes.com.txt`, `forbes.com.txt`, `wsj.com.txt`. Domain matching tries progressively shorter suffixes (e.g. `www.nytimes.com` → `nytimes.com`). Falls back to trafilatura (unauthenticated) if no cookie file exists.
 
 ## Dependencies
 - Python 3.12 venv (`.venv/`): requests-oauthlib, trafilatura, weasyprint, python-dotenv, lxml_html_clean, rm_api

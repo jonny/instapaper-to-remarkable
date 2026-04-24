@@ -10,6 +10,8 @@ import socket
 import sys
 import tempfile
 import time
+from http.cookiejar import MozillaCookieJar
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +23,7 @@ if _zscaler_certs.is_file():
 
     certifi.where = lambda: str(_zscaler_certs)
 
+import requests
 import trafilatura
 from dotenv import load_dotenv
 from requests_oauthlib import OAuth1Session
@@ -189,9 +192,53 @@ def sanitize_filename(title):
     return name[:120] if name else "untitled"
 
 
+_COOKIES_DIR = Path(__file__).parent / ".cookies"
+_FETCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+        "Version/17.0 Safari/605.1.15"
+    )
+}
+
+
+def _cookie_jar_for_url(url):
+    """Return a loaded MozillaCookieJar for the URL's domain, or None."""
+    host = urlparse(url).hostname or ""
+    parts = host.split(".")
+    # Try www.nytimes.com → nytimes.com → com (stop at 2 parts)
+    for i in range(len(parts) - 1):
+        cookie_file = _COOKIES_DIR / f"{'.'.join(parts[i:])}.txt"
+        if cookie_file.exists():
+            jar = MozillaCookieJar(str(cookie_file))
+            try:
+                jar.load(ignore_discard=True, ignore_expires=True)
+                return jar
+            except Exception as e:
+                log.warning("Could not load cookie file %s: %s", cookie_file.name, e)
+    return None
+
+
+def fetch_html(url):
+    """Fetch a URL, using a site cookie file if available, else trafilatura."""
+    jar = _cookie_jar_for_url(url)
+    if jar is not None:
+        try:
+            resp = requests.get(
+                url, cookies=jar, headers=_FETCH_HEADERS,
+                timeout=30, allow_redirects=True,
+            )
+            if resp.ok:
+                return resp.text
+            log.debug("Cookie fetch got HTTP %d for %s", resp.status_code, url)
+        except Exception as e:
+            log.debug("Cookie fetch error for %s: %s", url, e)
+    return trafilatura.fetch_url(url)
+
+
 def article_to_pdf(title, url, output_path):
     """Fetch, extract, and convert an article to PDF. Returns True on success."""
-    html = trafilatura.fetch_url(url)
+    html = fetch_html(url)
     if not html:
         log.warning("Could not fetch HTML for: %s", url)
         return False
