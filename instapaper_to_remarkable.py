@@ -54,6 +54,7 @@ h2 { font-size: 14pt; }
 h3 { font-size: 12pt; }
 img { max-width: 100%; height: auto; }
 a { color: #000; text-decoration: underline; }
+.article-url { font-size: 7pt; color: #666; margin-top: 0.2em; margin-bottom: 1em; word-break: break-all; }
 pre, code { font-size: 9pt; overflow-wrap: break-word; }
 blockquote { border-left: 2px solid #666; padding-left: 0.8em; margin-left: 0; }
 """
@@ -261,9 +262,15 @@ def article_to_pdf(title, url, output_path):
     content = re.sub(r"<graphic\b", "<img", content)
     content = re.sub(r"</graphic>", "", content)
 
-    # Prepend title if trafilatura didn't include one.
-    if not re.search(r"<h1[\s>]", content, re.IGNORECASE):
-        content = f"<h1>{html_lib.escape(title)}</h1>\n{content}"
+    # Ensure title and URL appear at the top.
+    url_tag = f'<p class="article-url">{html_lib.escape(url)}</p>'
+    if re.search(r"<h1[\s>]", content, re.IGNORECASE):
+        # Trafilatura included a title — insert URL line after it.
+        content = re.sub(
+            r"(</h1>)", rf"\1\n{url_tag}", content, count=1, flags=re.IGNORECASE
+        )
+    else:
+        content = f"<h1>{html_lib.escape(title)}</h1>\n{url_tag}\n{content}"
 
     full_html = HTML_TEMPLATE.format(
         css=EREADER_CSS,
