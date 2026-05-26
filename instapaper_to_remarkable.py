@@ -30,6 +30,10 @@ from dotenv import load_dotenv
 from requests_oauthlib import OAuth1Session
 from weasyprint import HTML
 
+# Without this, a stalled TLS handshake (e.g. flaky WiFi after wake) can
+# block a socket read forever — there was a 21-day hang on 2026-05-05.
+socket.setdefaulttimeout(60)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -143,6 +147,7 @@ def instapaper_auth(config):
             "x_auth_password": config["password"],
             "x_auth_mode": "client_auth",
         },
+        timeout=30,
     )
     if resp.status_code != 200:
         log.error("Instapaper auth failed (%s): %s", resp.status_code, resp.text)
@@ -168,6 +173,7 @@ def fetch_bookmarks(session, limit=25):
     resp = session.post(
         f"{INSTAPAPER_API}/api/1/bookmarks/list",
         data={"folder_id": "unread", "limit": limit},
+        timeout=30,
     )
     if resp.status_code != 200:
         log.error("Failed to fetch bookmarks (%s): %s", resp.status_code, resp.text)
@@ -290,6 +296,31 @@ def _get_rm_device_token():
     return None
 
 
+_RM_FILES_PATH_RE = re.compile(r"/sync/v3/files/[a-f0-9]+")
+
+
+def _patch_rm_api_docschema(api):
+    """Inject 'rm-filename: *.docSchema' on GETs to sync/v3/files/{hash}.
+
+    Remarkable's API started requiring this header (with a '.docSchema'
+    extension) around 2026-05-20; without it, file fetches return
+    400 {"message":"unexpected 'rm-filename' http header"}. The Go rmapi
+    client fixed this in PR ddvk/rmapi#63 (v0.0.34) but rm_api 1.2.6
+    has not. Mirrors that fix at the session layer.
+    """
+    original = api.session.request
+
+    def patched(method, url, **kwargs):
+        if _RM_FILES_PATH_RE.search(url):
+            headers = dict(kwargs.get("headers") or {})
+            if not any(k.lower() == "rm-filename" for k in headers):
+                headers["rm-filename"] = "root.docSchema"
+                kwargs["headers"] = headers
+        return original(method, url, **kwargs)
+
+    api.session.request = patched
+
+
 def upload_to_remarkable(pdf_path, title, folder):
     """Upload a PDF to Remarkable via rm_api. Returns True on success."""
     from rm_api import API
@@ -307,6 +338,7 @@ def upload_to_remarkable(pdf_path, title, folder):
     logging.getLogger("rm_api").setLevel(logging.ERROR)
     try:
         api = API(token_file_path=str(token_file), sync_file_path=sync_dir, log_file=os.devnull)
+        _patch_rm_api_docschema(api)
         if api.offline_mode:
             log.error("rm_api: offline — cannot upload")
             return False
@@ -326,6 +358,13 @@ def upload_to_remarkable(pdf_path, title, folder):
         pdf_bytes = Path(pdf_path).read_bytes()
         doc = Document.new_pdf(api=api, name=title, pdf_data=pdf_bytes, parent=target.uuid)
         api.upload(doc)
+
+        # rm_api.upload swallows exceptions via print_exc, so verify the
+        # document actually landed before claiming success.
+        api.get_documents()
+        if doc.uuid not in api.documents:
+            log.error("rm_api upload appeared to fail (doc not present after sync): %s", title)
+            return False
         return True
 
     except Exception:
