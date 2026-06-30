@@ -268,6 +268,11 @@ def article_to_pdf(title, url, output_path):
     content = re.sub(r"<graphic\b", "<img", content)
     content = re.sub(r"</graphic>", "", content)
 
+    # WeasyPrint's line splitter asserts on Unicode separator chars it doesn't
+    # expect mid-text (U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR).
+    # Some articles embed these; replace with a normal space to avoid the crash.
+    content = re.sub("[\u2028\u2029]", " ", content)
+
     # Ensure title and URL appear at the top.
     url_tag = f'<p class="article-url">{html_lib.escape(url)}</p>'
     if re.search(r"<h1[\s>]", content, re.IGNORECASE):
